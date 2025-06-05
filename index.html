@@ -1,103 +1,214 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>To-Do List</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-        }
-        #todoList {
-            border-collapse: collapse;
-            width: 70%;
-            margin: 0 auto;
-        }
-        #todoList th, #todoList td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        #todoList th {
-            background-color: #f0f0f0;
-        }
-        #todoList th:first-child, #todoList th:last-child {
-            width: 5%;
-        }
-        #todoList th:nth-child(2) {
-            width: 90%;
-        }
-        .add-form {
-            margin-top: 20px;
-            width: 70%;
-            margin: 20px auto;
-        }
-        .add-form input[type="text"] {
-            padding: 8px;
-            width: 70%;
-        }
-        .add-form button {
-            padding: 8px;
-            width: 20%;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>To-Do List</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    #todoList {
+      border-collapse: collapse;
+      width: 70%;
+      margin: 0 auto;
+    }
+    #todoList th, #todoList td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    #todoList th {
+      background-color: #f0f0f0;
+    }
+    #todoList th:first-child, #todoList th:last-child {
+      width: 5%;
+    }
+    #todoList th:nth-child(2) {
+      width: 80%;
+    }
+    .add-form {
+      margin-top: 20px;
+      width: 70%;
+      margin: 20px auto;
+      display: flex;
+      gap: 10px;
+    }
+    .add-form input[type="text"] {
+      padding: 8px;
+      flex-grow: 1;
+    }
+    .add-form button {
+      padding: 8px 16px;
+    }
+    .edit-input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px;
+    }
+  </style>
 </head>
 <body>
 
 <h2 style="text-align: center;">To-Do List</h2>
 
 <table id="todoList">
-    <thead>
-        <tr>
-            <th>Number</th>
-            <th>Text</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-    <tbody id="listBody">
-        {{rows}}
-    </tbody>
+  <thead>
+    <tr>
+      <th>Number</th>
+      <th>Text</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody id="listBody">
+    {{rows}}
+  </tbody>
 </table>
 
 <div class="add-form">
-    <input type="text" id="newItem" placeholder="Enter new item">
-    <button onclick="addItem()">Add</button>
+  <input type="text" id="newItem" placeholder="Enter new item" />
+  <button id="addBtn">Add</button>
 </div>
 
 <script>
-    let items = [];
-    let nextId = 1;
+  document.getElementById('addBtn').addEventListener('click', addItem);
 
-    function renderList() {
-        const listBody = document.getElementById('listBody');
-        listBody.innerHTML = '';
+  // Делегируем события кликов по кнопкам удаления и редактирования
+  document.getElementById('listBody').addEventListener('click', async (e) => {
+    const target = e.target;
+    const row = target.closest('tr');
+    if (!row) return;
+    const id = row.getAttribute('data-id');
 
-        items.forEach((item, index) => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${index + 1}</td>
-                <td>${item.text}</td>
-                <td><button onclick="removeItem(${index})">Remove</button></td>
-            `;
-            listBody.appendChild(row);
-        });
+    if (target.classList.contains('delete-btn')) {
+      if (confirm('Are you sure you want to delete this item?')) {
+        await deleteItem(id);
+      }
+    } else if (target.classList.contains('edit-btn')) {
+      startEditing(row);
+    } else if (target.classList.contains('save-btn')) {
+      await saveEdit(row);
+    } else if (target.classList.contains('cancel-btn')) {
+      cancelEdit(row);
+    }
+  });
+
+  async function addItem() {
+    const input = document.getElementById('newItem');
+    const text = input.value.trim();
+    if (!text) {
+      alert('Please enter a task');
+      return;
     }
 
-    function addItem() {
-        const newItemInput = document.getElementById('newItem');
-        const newItemText = newItemInput.value.trim();
+    try {
+      const res = await fetch('/api/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error('Failed to add item');
+      const newItem = await res.json();
 
-        if (newItemText) {
-            items.push({ id: nextId++, text: newItemText });
-            newItemInput.value = '';
-            renderList();
-        }
+      // Добавляем новую строку в таблицу
+      const tbody = document.getElementById('listBody');
+      const newRow = document.createElement('tr');
+      newRow.setAttribute('data-id', newItem.id);
+      // Поскольку сервер не возвращает полный список, для номера можно перезагрузить страницу или просто добавить в конец с номером +1
+      const currentRowsCount = tbody.querySelectorAll('tr').length;
+      newRow.innerHTML = `
+        <td>${currentRowsCount + 1}</td>
+        <td class="text-cell">${newItem.text}</td>
+        <td>
+          <button class="edit-btn">Edit</button>
+          <button class="delete-btn">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(newRow);
+
+      input.value = '';
+    } catch (err) {
+      alert('Error adding item: ' + err.message);
+    }
+  }
+
+  async function deleteItem(id) {
+    try {
+      const res = await fetch('/api/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: Number(id) }),
+      });
+      if (!res.ok) throw new Error('Failed to delete item');
+      // Удаляем строку из таблицы
+      const row = document.querySelector(`tr[data-id="${id}"]`);
+      if (row) row.remove();
+
+      // После удаления обновим номера строк
+      updateRowNumbers();
+    } catch (err) {
+      alert('Error deleting item: ' + err.message);
+    }
+  }
+
+  function updateRowNumbers() {
+    const rows = document.querySelectorAll('#listBody tr');
+    rows.forEach((row, index) => {
+      row.querySelector('td:first-child').textContent = index + 1;
+    });
+  }
+
+  function startEditing(row) {
+    const textCell = row.querySelector('.text-cell');
+    const currentText = textCell.textContent;
+    textCell.innerHTML = `<input type="text" class="edit-input" value="${currentText}" />`;
+
+    const actionCell = row.querySelector('td:last-child');
+    actionCell.innerHTML = `
+      <button class="save-btn">Save</button>
+      <button class="cancel-btn">Cancel</button>
+    `;
+  }
+
+  async function saveEdit(row) {
+    const id = row.getAttribute('data-id');
+    const input = row.querySelector('.edit-input');
+    const newText = input.value.trim();
+    if (!newText) {
+      alert('Text cannot be empty');
+      return;
     }
 
-    function removeItem(index) {
-        items.splice(index, 1);
-        renderList();
+    try {
+      const res = await fetch('/api/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: Number(id), text: newText }),
+      });
+      if (!res.ok) throw new Error('Failed to update item');
+
+      // Обновляем UI
+      row.querySelector('.text-cell').textContent = newText;
+      row.querySelector('td:last-child').innerHTML = `
+        <button class="edit-btn">Edit</button>
+        <button class="delete-btn">Delete</button>
+      `;
+    } catch (err) {
+      alert('Error updating item: ' + err.message);
     }
+  }
+
+  function cancelEdit(row) {
+    const textCell = row.querySelector('.text-cell');
+    const originalText = textCell.querySelector('.edit-input').defaultValue;
+    textCell.textContent = originalText;
+
+    const actionCell = row.querySelector('td:last-child');
+    actionCell.innerHTML = `
+      <button class="edit-btn">Edit</button>
+      <button class="delete-btn">Delete</button>
+    `;
+  }
 </script>
 
 </body>
