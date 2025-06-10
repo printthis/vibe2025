@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>To-Do List</title>
     <style>
         body {
@@ -40,6 +40,11 @@
             padding: 8px;
             width: 20%;
         }
+        .edit-input {
+            width: 95%;
+            padding: 6px;
+            box-sizing: border-box;
+        }
     </style>
 </head>
 <body>
@@ -55,49 +60,160 @@
         </tr>
     </thead>
     <tbody id="listBody">
-        {{rows}}
+        <!-- Список будет загружен через JS -->
     </tbody>
 </table>
 
 <div class="add-form">
-    <input type="text" id="newItem" placeholder="Enter new item">
+    <input type="text" id="newItem" placeholder="Enter new item" />
     <button onclick="addItem()">Add</button>
 </div>
 
 <script>
     let items = [];
-    let nextId = 1;
 
+    // Экранирование текста для безопасности
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Рендер списка в таблицу
     function renderList() {
         const listBody = document.getElementById('listBody');
         listBody.innerHTML = '';
 
         items.forEach((item, index) => {
             const row = document.createElement('tr');
+            row.dataset.id = item.id;
+
             row.innerHTML = `
                 <td>${index + 1}</td>
-                <td>${item.text}</td>
-                <td><button onclick="removeItem(${index})">Remove</button></td>
+                <td class="item-text">${escapeHtml(item.text)}</td>
+                <td>
+                    <button onclick="startEdit(${item.id})">Edit</button>
+                    <button onclick="removeItem(${item.id})">Remove</button>
+                </td>
             `;
             listBody.appendChild(row);
         });
     }
 
-    function addItem() {
-        const newItemInput = document.getElementById('newItem');
-        const newItemText = newItemInput.value.trim();
+    // Начать редактирование элемента
+    function startEdit(id) {
+        const row = document.querySelector(`tr[data-id='${id}']`);
+        const textCell = row.querySelector('.item-text');
+        const currentText = textCell.textContent;
 
-        if (newItemText) {
-            items.push({ id: nextId++, text: newItemText });
-            newItemInput.value = '';
+        textCell.innerHTML = `<input type="text" class="edit-input" value="${escapeHtml(currentText)}" />`;
+
+        const actionCell = row.querySelector('td:last-child');
+        actionCell.innerHTML = `
+            <button onclick="saveEdit(${id})">Save</button>
+            <button onclick="cancelEdit(${id}, '${escapeHtml(currentText)}')">Cancel</button>
+        `;
+    }
+
+    // Отмена редактирования
+    function cancelEdit(id, originalText) {
+        const row = document.querySelector(`tr[data-id='${id}']`);
+        const textCell = row.querySelector('.item-text');
+        textCell.textContent = originalText;
+
+        const actionCell = row.querySelector('td:last-child');
+        actionCell.innerHTML = `
+            <button onclick="startEdit(${id})">Edit</button>
+            <button onclick="removeItem(${id})">Remove</button>
+        `;
+    }
+
+    // Сохранение изменений
+    async function saveEdit(id) {
+        const row = document.querySelector(`tr[data-id='${id}']`);
+        const input = row.querySelector('.edit-input');
+        const newText = input.value.trim();
+
+        if (!newText) {
+            alert('Text cannot be empty');
+            return;
+        }
+
+        try {
+            const response = await fetch('/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, text: newText }),
+            });
+
+            if (!response.ok) throw new Error('Failed to update item');
+
+            const item = items.find(i => i.id === id);
+            if (item) item.text = newText;
+
             renderList();
+        } catch (err) {
+            alert('Error updating item: ' + err.message);
         }
     }
 
-    function removeItem(index) {
-        items.splice(index, 1);
-        renderList();
+    // Удаление элемента
+    async function removeItem(id) {
+        try {
+            const response = await fetch('/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id }),
+            });
+
+            if (!response.ok) throw new Error('Failed to delete item');
+
+            items = items.filter(i => i.id !== id);
+            renderList();
+        } catch (err) {
+            alert('Error deleting item: ' + err.message);
+        }
     }
+
+    // Добавление нового элемента
+    async function addItem() {
+        const newItemInput = document.getElementById('newItem');
+        const newItemText = newItemInput.value.trim();
+
+        if (!newItemText) return;
+
+        try {
+            const response = await fetch('/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: newItemText }),
+            });
+
+            if (!response.ok) throw new Error('Failed to add item');
+
+            const newItem = await response.json();
+            items.push(newItem);
+            newItemInput.value = '';
+            renderList();
+        } catch (err) {
+            alert('Error adding item: ' + err.message);
+        }
+    }
+
+    // Загрузка элементов с сервера
+    async function loadItems() {
+        try {
+            const response = await fetch('/items');
+            if (!response.ok) throw new Error('Failed to load items');
+            items = await response.json();
+            renderList();
+        } catch (err) {
+            alert('Error loading items: ' + err.message);
+        }
+    }
+
+    // При загрузке страницы
+    loadItems();
 </script>
 
 </body>
